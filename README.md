@@ -52,17 +52,39 @@ Both headers and outcome values are case sensitive.
 
 The included sample is solely synthetic demonstration events and is not an actual authentication log.
 
+## Testing
+
+The project includes automated unit tests for event validation using
+Python's built-in `unittest` framework.
+
+Run the tests from the project directory:
+
+```bash
+python -m unittest -v test_analyzer
+```
+
+The validation tests cover:
+
+- Valid events and accepted SUCCESS/FAILURE outcomes
+- IPv4 and IPv6 address handling
+- Rejection of invalid IP addresses and malformed timestamps
+- Rejection of timestamps without timezone information
+- Conversion of timezone-aware timestamps to UTC
+- Rejection of missing values, empty values, and blank usernames
+- Rejection of extra CSV values
+- Removal of surrounding whitespace from input fields
+
 ## Limitations
 
-- Does not yet detect suspicious login patterns.
-- Does not collect live logs or connect to a SIEM.
-- Supports only the documented CSV input format.
-- Stops at the first validation error.
-- Loads events into memory.
-- Does not yet include automated tests.
+- Does not yet detect suspicious login patterns
+- Does not collect live logs or connect to a SIEM
+- Supports only the documented CSV input format
+- Stops at the first validation error
+- Loads events into memory
+- Does not yet include automated tests
 
 ## Planned Improvements
 
-- Add automated validation tests.
-- Detect repeated failed logins within a configurable time window.
-- Produce summaries containing the events supporting each finding.
+- Add automated validation tests, sans event-validation testing
+- Detect repeated failed logins within a configurable time window
+- Produce summaries containing the events supporting each finding
