@@ -1,6 +1,7 @@
 import csv
 import ipaddress
-from datetime import datetime, timezone
+from collections import defaultdict, deque
+from datetime import datetime, timezone, timedelta
 
 REQUIRED_FIELDS = (
     "timestamp",
@@ -115,6 +116,50 @@ def load_events(file_path):
 
     return events
 
+def detect_repeated_failures(events, threshold=5, window_minutes=10):
+    """Return first qualifying failure window alert for each source IP"""
+    if threshold < 1:
+        raise ValueError("threshold must be at least 1")
+
+    if window_minutes <= 0:
+        raise ValueError("window_minutes must be greater than 0")
+
+    window = timedelta(minutes=window_minutes)
+    failures_by_ip = defaultdict(deque)
+    alerted_ips = set()
+    alerts = []
+
+    sorted_events = sorted(events, key=lambda event: event["timestamp"])
+
+    for event in sorted_events:
+        if event in sorted_events:
+            if event["outcome"] != "FAILURE":
+                continue
+
+            source_ip = event["source_ip"]
+            timestamp = event["timestamp"]
+
+            if source_ip in alerted_ips:
+                continue
+
+            recent_failures = failures_by_ip[source_ip]
+            recent_failures.append(timestamp)
+
+            cutoff = timestamp - window
+
+            while recent_failures[0] < cutoff:
+                recent_failures.popleft()
+
+            if len(recent_failures) >= threshold:
+                alerts.append({
+                    "source_ip": source_ip,
+                    "failure_count": len(recent_failures),
+                    "window_start": recent_failures[0],
+                    "window_end": timestamp
+                })
+                alerted_ips.add(source_ip)
+    return alerts
+
 def main():
     file_path = "sample_events.csv"
 
@@ -153,6 +198,18 @@ def main():
             f"SRC={event['source_ip']} "
             f"USER={event['username']} "
             f"OUTCOME={event['outcome']}"
+        )
+
+    alerts = detect_repeated_failures(events)
+
+    print(f"\nRepeated failure alerts: {len(alerts)}")
+
+    for alert in alerts:
+        print(
+            f"ALERT: SRC={alert['source_ip']} "
+            f"FAILURES={alert['failure_count']} "
+            f"START={alert['window_start'].isoformat()} "
+            f"END={alert['window_end'].isoformat()}"
         )
 
 
