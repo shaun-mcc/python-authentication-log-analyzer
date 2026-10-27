@@ -74,6 +74,19 @@ The validation tests cover:
 - Rejection of extra CSV values
 - Removal of surrounding whitespace from input fields
 
+The repeated-failure detection tests cover:
+
+- An alert when a source IP reaches five failed logins within ten minutes
+- No alert when failures remain below the threshold
+- No alert when failures fall outside the time window
+- Successful logins not counting toward the failure threshold
+- Separate failure counts for each source IP
+- Inclusion of failures exactly at the ten-minute window boundary
+- Correct detection when input events are out of order
+- One alert per source IP per analysis, even when more failures follow
+- Empty event input returning no alerts
+- Rejection of a zero failure threshold or zero time-window setting
+
 ## Limitations
 
 - Does not yet detect suspicious login patterns
@@ -81,10 +94,8 @@ The validation tests cover:
 - Supports only the documented CSV input format
 - Stops at the first validation error
 - Loads events into memory
-- Does not yet include automated tests
+
 
 ## Planned Improvements
 
-- Add automated validation tests, sans event-validation testing
-- Detect repeated failed logins within a configurable time window
 - Produce summaries containing the events supporting each finding
