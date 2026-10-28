@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Ignore local CSV logs, but keep the synthetic sample
+*.csv
+!/sample_events.csv
