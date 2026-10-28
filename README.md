@@ -2,7 +2,9 @@
 
 Educational Python project for analyzing authentication events.
 
-The current version loads and validates events from a documented CSV format. Suspicious login detection is planned but currently not implemented.
+The current version loads and validates authentication events from a
+documented CSV format and detects repeated failed logins by source IP
+within a rolling time window.
 
 ## Current Features
 
@@ -16,7 +18,7 @@ The current version loads and validates events from a documented CSV format. Sus
 - Accepts only `SUCCESS` or `FAILURE` outcomes
 - Displays validation errors with the corresponding record's line location
 - Stops loading at first invalid record
-- Detects repeated failed logins by source IP using a configurable
+- Detects repeated failed logins by source IP using a
   threshold and rolling time window
 - Prints detection alerts with the source IP, failure count, and
   first and last failure timestamps in the triggering window
@@ -30,13 +32,24 @@ The current version loads and validates events from a documented CSV format. Sus
 
 ## Getting Started
 
-Put `analyzer.py` and 'sample_events.csv` in the same directory. Open a terminal in that directory and run:
+Open a terminal in the project directory and run the analyzer with a CSV file path:
 
 ```bash
-python analyzer.py
+python analyzer.py sample_events.csv
 ```
-The program currently reads `sample_events.csv` from the working directory.
-It prints the number of valid events followed by the cleaned event details.
+This example uses the included `sample_events.csv`. To analyze another file,
+replace it with that file's path. Put quotation marks around paths containing spaces.
+
+The program prints the number of valid events, the cleaned event details,
+and any repeated failure alerts. It flags a source IP when it
+reaches five failed logins within a rolling ten-minute window, reporting
+the first qualifying alert per source IP per run.
+
+To view command-line help:
+
+```bash
+python analyzer.py --help
+```
 
 ## Input Formatting
 
@@ -48,7 +61,7 @@ timestamp,source_ip,username,outcome
 
 | Field | Requirement |
 |---|---|
-| `timestamp` | Parseable date/time with an explicit timezone offset |
+| `timestamp` | ISO 8601 timestamp with an explicit timezone offset |
 | `source_ip` | Valid IPv4 or IPv6 address |
 | `username` | Nonempty value |
 | `outcome` | Exactly `SUCCESS` or `FAILURE` |
@@ -56,12 +69,14 @@ timestamp,source_ip,username,outcome
 Surrounding whitespace is stripped from field values.
 Both headers and outcome values are case sensitive.
 
-The included sample is solely synthetic demonstration events and is not an actual authentication log.
+The included sample contains only synthetic demonstration events,
+not real authentication logs.
 
 ## Testing
 
-The project includes automated unit tests for event validation using
-Python's built-in `unittest` framework.
+The project includes automated unit tests for event validation,
+repeated-failure detection, CSV loading, and command-line argument
+parsing using Python's built-in `unittest` framework.
 
 Run the tests from the project directory:
 
@@ -103,15 +118,25 @@ The CSV-loader tests cover:
 - Rejection of records with too few or too many values
 - Missing input files raising FileNotFoundError
 
+The command-line argument tests cover:
+
+- Accepting a CSV file path
+- Preserving file paths containing spaces
+- Rejecting a missing required file path
+- Rejecting unrecognized arguments
+- Displaying help and exiting successfully
+
 ## Limitations
 
 - Does not collect live logs or connect to a SIEM
 - Supports only the documented CSV input format
 - Stops at the first validation error
 - Loads events into memory
+- Detection threshold and time window cannot yet be changed through
+  command-line options
 
 
 ## Planned Improvements
 
 - Produce summaries containing the events supporting each finding
-- Accept input filename from command-line
+- Add command-line options for the failure threshold and time window
