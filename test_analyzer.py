@@ -2,9 +2,15 @@ import unittest
 from datetime import datetime, timezone, timedelta
 from tempfile import TemporaryDirectory
 from pathlib import Path
+import io
+from contextlib import redirect_stdout, redirect_stderr
 
-from analyzer import validate_event, detect_repeated_failures, load_events
-
+from analyzer import (
+    validate_event,
+    detect_repeated_failures,
+    load_events,
+    parse_arguments
+)
 
 class TestValidateEvent(unittest.TestCase):
     def setUp(self):
@@ -408,6 +414,53 @@ class TestLoadEvents(unittest.TestCase):
 
         with self.assertRaises(FileNotFoundError):
             load_events(missing_path)
+
+
+class TestParseArguments(unittest.TestCase):
+    def test_csv_path_accepted(self):
+        args = parse_arguments(["sample_events.csv"])
+
+        self.assertEqual(args.file_path, "sample_events.csv")
+
+    def test_path_with_spaces_accepted(self):
+        file_path = "logs/authentication events.csv"
+
+        args = parse_arguments([file_path])
+
+        self.assertEqual(args.file_path, file_path)
+
+    def test_missing_path_rejected(self):
+        output = io.StringIO()
+
+        with redirect_stderr(output):
+            with self.assertRaises(SystemExit) as context:
+                parse_arguments([])
+
+        self.assertEqual(context.exception.code, 2)
+        self.assertIn("file_path", output.getvalue())
+
+    def test_unexpected_argument_rejected(self):
+        output = io.StringIO()
+
+        with redirect_stderr(output):
+            with self.assertRaises(SystemExit) as context:
+                parse_arguments([
+                    "sample_events.csv",
+                    "--unknown-option"
+                ])
+
+        self.assertEqual(context.exception.code, 2)
+        self.assertIn("--unknown-option", output.getvalue())
+
+    def test_help_exits_successfully(self):
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            with self.assertRaises(SystemExit) as context:
+                parse_arguments(["--help"])
+
+        self.assertEqual(context.exception.code, 0)
+        self.assertIn("--help", output.getvalue())
 
 
 if __name__ == '__main__':
