@@ -1,7 +1,10 @@
 import csv
 import ipaddress
+import argparse
 from collections import defaultdict, deque
 from datetime import datetime, timezone, timedelta
+
+
 
 REQUIRED_FIELDS = (
     "timestamp",
@@ -160,8 +163,24 @@ def detect_repeated_failures(events, threshold=5, window_minutes=10):
                 alerted_ips.add(source_ip)
     return alerts
 
+def parse_arguments(argv=None):
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Analyze authentication CSV logs for repeated failed logins"
+        )
+    )
+
+    parser.add_argument(
+        "file_path",
+        help="Path to authentication CSV file"
+    )
+
+    return parser.parse_args(argv)
+
 def main():
-    file_path = "sample_events.csv"
+    args = parse_arguments()
+    file_path = args.file_path
 
     try:
         events = load_events(file_path)
