@@ -16,6 +16,12 @@ The current version loads and validates events from a documented CSV format. Sus
 - Accepts only `SUCCESS` or `FAILURE` outcomes
 - Displays validation errors with the corresponding record's line location
 - Stops loading at first invalid record
+- Detects repeated failed logins by source IP using a configurable
+  threshold and rolling time window
+- Prints detection alerts with the source IP, failure count, and
+  first and last failure timestamps in the triggering window
+- Defaults to five failures within ten minutes and reports the first
+  qualifying alert per source IP per run
 
 ## Requirements
 
@@ -89,7 +95,6 @@ The repeated-failure detection tests cover:
 
 ## Limitations
 
-- Does not yet detect suspicious login patterns
 - Does not collect live logs or connect to a SIEM
 - Supports only the documented CSV input format
 - Stops at the first validation error
