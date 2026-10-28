@@ -1,7 +1,9 @@
 import unittest
 from datetime import datetime, timezone, timedelta
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
-from analyzer import validate_event, detect_repeated_failures
+from analyzer import validate_event, detect_repeated_failures, load_events
 
 
 class TestValidateEvent(unittest.TestCase):
@@ -142,6 +144,7 @@ class TestValidateEvent(unittest.TestCase):
 
         result = validate_event(row, 2)
         self.assertEqual(result["outcome"], "FAILURE")
+
 
 class TestDetectRepeatedFailures(unittest.TestCase):
     def setUp(self):
@@ -293,6 +296,118 @@ class TestDetectRepeatedFailures(unittest.TestCase):
             ValueError, "window_minutes must be greater than 0"
         ):
             detect_repeated_failures([], window_minutes=0)
+
+
+class TestLoadEvents(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
+        self.file_path = Path(self.temp_dir.name) / "events.csv"
+        self.header = "timestamp,source_ip,username,outcome\n"
+
+    def write_csv(self, content):
+        with self.file_path.open("w", encoding="utf-8", newline="") as csv_file:
+            csv_file.write(content)
+
+    def test_valid_csv_returns_cleaned_events(self):
+        self.write_csv(
+            self.header
+            + "2026-10-23T14:00:00+00:00,"
+              "192.0.2.10,alice,SUCCESS\n"
+            + "2026-10-23T14:02:00+00:00,"
+              "192.0.2.20,bob,FAILURE\n"
+        )
+
+        events = load_events(self.file_path)
+
+        expected = [
+            {
+                "timestamp": datetime(
+                    2026, 10, 23, 14, 0, tzinfo=timezone.utc
+                ),
+                "source_ip": "192.0.2.10",
+                "username": "alice",
+                "outcome": "SUCCESS"
+            },
+            {
+                "timestamp": datetime(
+                    2026, 10, 23, 14, 2, tzinfo=timezone.utc
+                ),
+                "source_ip": "192.0.2.20",
+                "username": "bob",
+                "outcome": "FAILURE",
+            }
+        ]
+
+        self.assertEqual(events, expected)
+
+    def test_empty_file_rejected(self):
+        self.write_csv("")
+
+        with self.assertRaisesRegex(ValueError, "No headers found"):
+            load_events(self.file_path)
+
+    def test_header_only_returns_empty_list(self):
+        self.write_csv(self.header)
+
+        events = load_events(self.file_path)
+
+        self.assertEqual(events, [])
+
+    def test_missing_header_column_rejected(self):
+        self.write_csv("timestamp,source_ip,username\n")
+
+        with self.assertRaisesRegex(ValueError, "Missing columns:.*outcome"):
+            load_events(self.file_path)
+
+    def test_unexpected_header_column_rejected(self):
+        self.write_csv("timestamp,source_ip,username,outcome,extra\n")
+
+        with self.assertRaisesRegex(ValueError, "Unexpected columns:.*extra"):
+            load_events(self.file_path)
+
+    def test_duplicate_header_column_rejected(self):
+        self.write_csv("timestamp,source_ip,username,outcome,username\n")
+
+        with self.assertRaisesRegex(ValueError, "duplicate column names"):
+            load_events(self.file_path)
+
+    def test_invalid_record_rejected(self):
+        self.write_csv(
+            self.header
+            + "2026-10-23T14:00:00+00:00,"
+              "not-an-ip,alice,SUCCESS\n"
+        )
+
+        with self.assertRaisesRegex(ValueError, "invalid source_ip"):
+            load_events(self.file_path)
+
+    def test_record_with_missing_value_rejected(self):
+        self.write_csv(
+            self.header
+            + "2026-10-23T14:00:00+00:00,"
+              "192.0.2.10,alice\n"
+        )
+
+        with self.assertRaisesRegex(ValueError, "missing 'outcome' value"):
+            load_events(self.file_path)
+
+    def test_record_with_extra_value_rejected(self):
+        self.write_csv(
+            self.header
+            + "2026-10-23T14:00:00+00:00,"
+              "192.0.2.10,alice,SUCCESS,unexpected\n"
+        )
+
+        with self.assertRaisesRegex(ValueError, "too many values"):
+            load_events(self.file_path)
+
+    def test_missing_file_rejected(self):
+        missing_path = Path(self.temp_dir.name) / "missing.csv"
+
+        with self.assertRaises(FileNotFoundError):
+            load_events(missing_path)
 
 
 if __name__ == '__main__':
