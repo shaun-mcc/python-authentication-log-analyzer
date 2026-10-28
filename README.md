@@ -93,6 +93,16 @@ The repeated-failure detection tests cover:
 - Empty event input returning no alerts
 - Rejection of a zero failure threshold or zero time-window setting
 
+The CSV-loader tests cover:
+
+- Loading valid CSV records as cleaned events
+- Rejection of empty files without headers
+- Header-only files returning an empty event list
+- Rejection of missing, unexpected, or duplicate header columns
+- Invalid record errors including the CSV line number
+- Rejection of records with too few or too many values
+- Missing input files raising FileNotFoundError
+
 ## Limitations
 
 - Does not collect live logs or connect to a SIEM
@@ -104,3 +114,4 @@ The repeated-failure detection tests cover:
 ## Planned Improvements
 
 - Produce summaries containing the events supporting each finding
+- Accept input filename from command-line
