@@ -1,15 +1,20 @@
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 from tempfile import TemporaryDirectory
 from pathlib import Path
 import io
 from contextlib import redirect_stdout, redirect_stderr
+import json
+
 
 from analyzer import (
     validate_event,
     detect_repeated_failures,
     load_events,
-    parse_arguments
+    parse_arguments,
+    save_report,
+    main
 )
 
 class TestValidateEvent(unittest.TestCase):
@@ -461,6 +466,294 @@ class TestParseArguments(unittest.TestCase):
 
         self.assertEqual(context.exception.code, 0)
         self.assertIn("--help", output.getvalue())
+
+    def test_output_path_accepted(self):
+        args = parse_arguments([
+            "sample_events.csv",
+            "--output",
+            "report.json"
+        ])
+
+        self.assertEqual(args.file_path, "sample_events.csv")
+        self.assertEqual(args.output, "report.json")
+
+    def test_output_defaults_to_none(self):
+        args = parse_arguments(["sample_events.csv"])
+
+        self.assertIsNone(args.output)
+
+    def test_output_without_value_rejected(self):
+        output = io.StringIO()
+
+        with redirect_stderr(output):
+            with self.assertRaises(SystemExit) as context:
+                parse_arguments([
+                    "sample_events.csv",
+                    "--output"
+                ])
+
+        self.assertEqual(context.exception.code, 2)
+        self.assertIn("--output", output.getvalue())
+
+
+class TestSaveReport(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
+        self.output_path = (
+            Path(self.temp_dir.name) / "report.json"
+        )
+
+    def read_report(self):
+        with self.output_path.open(encoding="utf-8") as report_file:
+            return json.load(report_file)
+
+    def test_report_with_alert_saved(self):
+        alerts = [{
+            "source_ip": "192.0.2.10",
+            "failure_count": 5,
+            "window_start": datetime(
+                2026, 10, 23, 14, 0, tzinfo=timezone.utc
+            ),
+            "window_end": datetime(
+                2026, 10, 23, 14, 8, tzinfo=timezone.utc
+            )
+        }]
+
+        save_report(
+            output_path=self.output_path,
+            input_file="sample_events.csv",
+            events_loaded=6,
+            alerts=alerts
+        )
+
+        report = self.read_report()
+
+        expected = {
+            "input_file": "sample_events.csv",
+            "events_loaded": 6,
+            "threshold": 5,
+            "window_minutes": 10,
+            "alert_count": 1,
+            "alerts": [{
+                "source_ip": "192.0.2.10",
+                "failure_count": 5,
+                "window_start": "2026-10-23T14:00:00+00:00",
+                "window_end": "2026-10-23T14:08:00+00:00"
+            }]
+        }
+
+        self.assertEqual(report, expected)
+
+    def test_report_without_alerts_saved(self):
+        save_report(
+            output_path=self.output_path,
+            input_file="sample_events.csv",
+            events_loaded=3,
+            alerts=[]
+        )
+
+        report = self.read_report()
+
+        expected = {
+            "input_file": "sample_events.csv",
+            "events_loaded": 3,
+            "threshold": 5,
+            "window_minutes": 10,
+            "alert_count": 0,
+            "alerts": []
+        }
+
+        self.assertEqual(report, expected)
+
+    def test_custom_settings_recorded(self):
+        save_report(
+            output_path=self.output_path,
+            input_file="sample_events.csv",
+            events_loaded=0,
+            alerts=[],
+            threshold=3,
+            window_minutes=15
+        )
+
+        report = self.read_report()
+
+        self.assertEqual(report["threshold"], 3)
+        self.assertEqual(report["window_minutes"], 15)
+
+    def test_missing_output_directory_raises_error(self):
+        output_path = (
+            Path(self.temp_dir.name)
+            / "missing_directory"
+            / "report.json"
+        )
+
+        with self.assertRaises(OSError):
+            save_report(
+                output_path=output_path,
+                input_file="sample_events.csv",
+                events_loaded=0,
+                alerts=[],
+            )
+
+class TestMainIntegration(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
+        self.directory = Path(self.temp_dir.name)
+        self.input_path = self.directory / "events.csv"
+        self.output_path = self.directory / "report.json"
+
+        self.header = "timestamp,source_ip,username,outcome\n"
+
+    def write_csv(self, content):
+        with self.input_path.open(
+                "w", encoding="utf-8", newline=""
+        ) as csv_file:
+            csv_file.write(content)
+
+    def write_alert_sample(self):
+        self.write_csv(
+            self.header
+            + "2026-10-23T14:00:00+00:00,"
+              "192.0.2.10,alice,FAILURE\n"
+            + "2026-10-23T14:02:00+00:00,"
+              "192.0.2.10,alice,FAILURE\n"
+            + "2026-10-23T14:04:00+00:00,"
+              "192.0.2.10,bob,FAILURE\n"
+            + "2026-10-23T14:06:00+00:00,"
+              "192.0.2.10,bob,FAILURE\n"
+            + "2026-10-23T14:08:00+00:00,"
+              "192.0.2.10,alice,FAILURE\n"
+        )
+
+    def run_main(self, arguments):
+        output = io.StringIO()
+
+        with patch("sys.argv", ["analyzer.py"] + arguments):
+            with redirect_stdout(output):
+                main()
+
+        return output.getvalue()
+
+    def read_report(self):
+        with self.output_path.open(
+                encoding="utf-8"
+        ) as report_file:
+            return json.load(report_file)
+
+    def test_cli_saves_expected_alert_report(self):
+        self.write_alert_sample()
+
+        output = self.run_main([
+            str(self.input_path),
+            "--output",
+            str(self.output_path)
+        ])
+
+        report = self.read_report()
+
+        expected = {
+            "input_file": str(self.input_path),
+            "events_loaded": 5,
+            "threshold": 5,
+            "window_minutes": 10,
+            "alert_count": 1,
+            "alerts": [{
+                "source_ip": "192.0.2.10",
+                "failure_count": 5,
+                "window_start": "2026-10-23T14:00:00+00:00",
+                "window_end": "2026-10-23T14:08:00+00:00"
+            }]
+        }
+
+        self.assertEqual(report, expected)
+        self.assertIn("Repeated failure alerts: 1", output)
+        self.assertIn("Report saved to", output)
+
+    def test_cli_without_output_only_prints_results(self):
+        self.write_alert_sample()
+
+        output = self.run_main([
+            str(self.input_path)
+        ])
+
+        self.assertIn("Repeated failure alerts: 1", output)
+        self.assertNotIn("Report saved to", output)
+
+        remaining_files = {
+            path.name for path in self.directory.iterdir()
+        }
+
+        self.assertEqual(remaining_files, {"events.csv"})
+
+    def test_header_only_csv_saves_empty_report(self):
+        self.write_csv(self.header)
+
+        self.run_main([
+            str(self.input_path),
+            "--output",
+            str(self.output_path)
+        ])
+
+        report = self.read_report()
+
+        self.assertEqual(report["events_loaded"], 0)
+        self.assertEqual(report["alert_count"], 0)
+        self.assertEqual(report["alerts"], [])
+
+    def test_report_write_failure_exits_with_error(self):
+        self.write_alert_sample()
+
+        invalid_output = (
+                self.directory
+                / "missing_directory"
+                / "report.json"
+        )
+
+        output = io.StringIO()
+
+        arguments = [
+            "analyzer.py",
+            str(self.input_path),
+            "--output",
+            str(invalid_output)
+        ]
+
+        with patch("sys.argv", arguments):
+            with redirect_stdout(output):
+                with self.assertRaises(SystemExit) as context:
+                    main()
+
+        self.assertEqual(context.exception.code, 1)
+        self.assertIn("Report error:", output.getvalue())
+
+    def test_invalid_input_does_not_create_report(self):
+        self.write_csv(
+            self.header
+            + "2026-10-23T14:00:00+00:00,"
+              "not-an-ip,alice,FAILURE\n"
+        )
+
+        output = io.StringIO()
+
+        arguments = [
+            "analyzer.py",
+            str(self.input_path),
+            "--output",
+            str(self.output_path)
+        ]
+
+        with patch("sys.argv", arguments):
+            with redirect_stdout(output):
+                with self.assertRaises(SystemExit) as context:
+                    main()
+
+        self.assertEqual(context.exception.code, 1)
+        self.assertIn("invalid source_ip", output.getvalue())
+        self.assertFalse(self.output_path.exists())
 
 
 if __name__ == '__main__':
