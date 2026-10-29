@@ -3,6 +3,7 @@ import ipaddress
 import argparse
 from collections import defaultdict, deque
 from datetime import datetime, timezone, timedelta
+import json
 
 
 
@@ -163,6 +164,38 @@ def detect_repeated_failures(events, threshold=5, window_minutes=10):
                 alerted_ips.add(source_ip)
     return alerts
 
+def save_report(
+        output_path,
+        input_file,
+        events_loaded,
+        alerts,
+        threshold=5,
+        window_minutes=10
+):
+    """Save analysis settings and findings as a JSON report"""
+    report_alerts = []
+
+    for alert in alerts:
+        report_alerts.append({
+            "source_ip": alert["source_ip"],
+            "failure_count": alert["failure_count"],
+            "window_start": alert["window_start"].isoformat(),
+            "window_end": alert["window_end"].isoformat()
+        })
+
+    report = {
+        "input_file": str(input_file),
+        "events_loaded": events_loaded,
+        "threshold": threshold,
+        "window_minutes": window_minutes,
+        "alert_count": len(report_alerts),
+        "alerts": report_alerts
+    }
+
+    with open(output_path, "w", encoding="utf-8") as report_file:
+        json.dump(report, report_file, indent=2)
+        report_file.write("\n")
+
 def parse_arguments(argv=None):
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
@@ -174,6 +207,11 @@ def parse_arguments(argv=None):
     parser.add_argument(
         "file_path",
         help="Path to authentication CSV file"
+    )
+
+    parser.add_argument(
+        "--output",
+        help="Save a JSON findings report to this path; overwrites an existing file"
     )
 
     return parser.parse_args(argv)
@@ -209,7 +247,7 @@ def main():
 
     if not events:
         print(f"No valid authentication events found")
-        return
+
 
     for event in events:
         print(
@@ -219,7 +257,14 @@ def main():
             f"OUTCOME={event['outcome']}"
         )
 
-    alerts = detect_repeated_failures(events)
+    threshold = 5
+    window_minutes = 10
+
+    alerts = detect_repeated_failures(
+        events,
+        threshold=threshold,
+        window_minutes=window_minutes
+    )
 
     print(f"\nRepeated failure alerts: {len(alerts)}")
 
@@ -230,6 +275,26 @@ def main():
             f"START={alert['window_start'].isoformat()} "
             f"END={alert['window_end'].isoformat()}"
         )
+
+    if args.output is not None:
+        try:
+            save_report(
+                output_path=args.output,
+                input_file=file_path,
+                events_loaded=len(events),
+                alerts=alerts,
+                threshold=threshold,
+                window_minutes=window_minutes
+            )
+
+        except OSError as error:
+            print(
+                f"Report error: could not write "
+                f"{args.output}: {error}"
+            )
+            raise SystemExit(1)
+
+        print(f"\nReport saved to {args.output}")
 
 
 if __name__ == "__main__":
